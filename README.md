@@ -9,17 +9,35 @@ The `FGeneric` struct is a universal container designed to store values of diver
 - **Plain Data Types**: Direct memory storage for optimal performance
 - **Complex Types**: Serialized text storage using UE's property system
 
-## Key Features
+## Installation
 
-### Type Safety & Compatibility
-- Compile-time type checking with runtime validation
-- Automatic UE4/UE5 compatibility through version detection
-- Full support for Unreal's reflection system
+### For Blueprint Projects (Recommended for non-programmers)
+1. Download the latest release from the [Releases](../../releases) page
+2. Extract the contents to your project's `Plugins` directory
+3. Restart the Unreal Editor
+
+### For C++ Projects (Advanced users)
+1. Clone this repository to your project's `Plugins` directory
+2. Right-click your `.uproject` file and select "Generate Visual Studio project files"
+3. Build your project in Visual Studio
+
+### Verification
+After installation, you should see:
+- Generic struct type available in Blueprint editor
+- Generic struct properties in the details panel
+- No compilation errors in the output log
+
+## Version Compatibility
+
+- **UE 4.26+**: Full support with automatic type adaptation
+- **UE 5.0+**: Enhanced with native UE5 types (FVector2f, FVector3f, etc.)
+- Automatic version detection and code patching at build time
+
+## Key Features
 
 ### Storage Optimization
 - Dual storage strategy: memory-efficient for POD types, serialized for complex types
 - Data caching system to avoid repetitive text parsing
-- Memory alignment safe with endianness awareness
 
 ### Blueprint Integration
 - Complete Blueprint-C++ bidirectional data exchange
@@ -79,31 +97,6 @@ The system provides full Blueprint support through `UGenericStatics` helper func
 - Dynamic configuration systems
 - Save game data serialization
 
-## Installation
-
-### For Blueprint Projects (Recommended for non-programmers)
-1. Download the latest release from the [Releases](../../releases) page
-2. Extract the contents to your project's `Plugins` directory
-3. Restart the Unreal Editor - the plugin will auto-enable
-
-### For C++ Projects (Advanced users)
-1. Clone this repository to your project's `Plugins` directory
-2. Right-click your `.uproject` file and select "Generate Visual Studio project files"
-3. Build your project in Visual Studio
-4. The plugin will be automatically enabled
-
-### Verification
-After installation, you should see:
-- New pin types available in Blueprint editor
-- Generic struct properties in the details panel
-- No compilation errors in the output log
-
-## Version Compatibility
-
-- **UE 4.26+**: Full support with automatic type adaptation
-- **UE 5.0+**: Enhanced with native UE5 types (FVector2f, FVector3f, etc.)
-- Automatic version detection and code patching at build time
-
 ## Technical Details
 
 ### Memory Management
@@ -124,25 +117,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 Issues and pull requests are welcome for this standalone plugin.
 
-## Author
-
-**Liquid Fish** - Original creator of MaidGameFramework and this extraction
-
 ## Temporary Icon Copyright Notice
 
 The `Icon128.png` file included in this repository is a temporary placeholder image sourced from an anime screenshot. This image is used solely for development environment display purposes and is not included in any distribution builds.
-
-### Copyright Status
-- This icon is not owned by the project maintainers
-- It will be replaced with original/appropriately licensed artwork in future versions
-- The image is used under fair use principles for non-commercial development purposes
-
-### Removal Policy
+This icon is not owned by the project maintainers.
 If you are the copyright holder of this image and wish to have it removed, please contact us immediately. We will promptly replace it with alternative artwork.
-
-### Technical Implementation
-- The icon is excluded from all packaging builds via appropriate configuration
-- It serves only as an editor-side visual reference
-- No runtime dependency on this asset exists
-
-We acknowledge that this temporary solution is not ideal and are actively working to replace it with original content.
