@@ -13,12 +13,70 @@
 #include "UserDefinedStructure/UserDefinedStructEditorData.h"
 #include "IDocumentation.h"
 #include "IDetailChildrenBuilder.h"
+#include "Editor/TransBuffer.h"
 
-#define LOCTEXT_NAMESPACE "BlueprintDetailsCustomization"
+#define LOCTEXT_NAMESPACE "GenericStructCustomization"
+
+static FORCEINLINE const bool IsPinTypeValid(const FEdGraphPinType& Type)
+{
+	return FEdGraphPinType() != Type;
+}
+
+static FORCEINLINE const bool IsEquivalent(const FStructVariableDescription& VarDesc, const FEdGraphPinType& PinType)
+{
+	return VarDesc.Category == PinType.PinCategory
+		&& VarDesc.SubCategory == PinType.PinSubCategory
+		&& VarDesc.SubCategoryObject.Get() == PinType.PinSubCategoryObject
+		&& VarDesc.ContainerType == PinType.ContainerType
+		&& VarDesc.PinValueType == PinType.PinValueType;
+}
+
+static void ModifyEditingObjects(IPropertyHandle* PropertyHandle)
+{
+	if (!PropertyHandle)
+	{
+		return;
+	}
+	TArray<UObject*> ModifiedObjects;
+	PropertyHandle->GetOuterObjects(ModifiedObjects);
+	for (auto Object : ModifiedObjects)
+	{
+		if (IsValid(Object))
+			Object->Modify();
+	}
+}
 
 TSharedRef<IPropertyTypeCustomization> FGenericStructCustomization::MakeInstance()
 {
-	return MakeShareable(new FGenericStructCustomization);
+	TSharedRef<FGenericStructCustomization> Instance = MakeShareable(new FGenericStructCustomization);
+	if (auto* TransBuffer = Cast<UTransBuffer>(GEditor ? GEditor->Trans : nullptr))
+	{
+		Instance->UndoHandle = TransBuffer->OnUndo().AddLambda([WeakInst = TWeakPtr<FGenericStructCustomization>(Instance)]
+			(const FTransactionContext& TransactionContext, bool Succeeded)
+			{
+				if (Succeeded)
+				{
+					if (auto* InstPtr = WeakInst.Pin().Get())
+					{
+						InstPtr->ForceRebuildDetails();
+					}
+				}
+			}
+		);
+	}
+	return Instance;
+}
+
+FGenericStructCustomization::~FGenericStructCustomization()
+{
+	if (UndoHandle.IsValid())
+	{
+		if (auto* TransBuffer = Cast<UTransBuffer>(GEditor ? GEditor->Trans : nullptr))
+		{
+			TransBuffer->OnUndo().Remove(UndoHandle);
+			UndoHandle.Reset();
+		}
+	}
 }
 
 void FGenericStructCustomization::CustomizeStructHeader(TSharedRef<IPropertyHandle> StructPropertyHandle, FDetailWidgetRow& HeaderRow, IStructCustomizationUtils& StructCustomizationUtils)
@@ -32,24 +90,24 @@ void FGenericStructCustomization::CustomizeStructHeader(TSharedRef<IPropertyHand
 		.NameContent()
 		[
 			SNew(STextBlock)
-			//.Text(LOCTEXT("VariableTypeLabel", "Variable Type"))
-			.Text(StructPropertyHandle->GetPropertyDisplayName())
-		.ToolTip(VarTypeTooltip)
-		.Font(DetailFontInfo)
+				//.Text(LOCTEXT("VariableTypeLabel", "Variable Type"))
+				.Text(StructPropertyHandle->GetPropertyDisplayName())
+				.ToolTip(VarTypeTooltip)
+				.Font(DetailFontInfo)
 		]
-	.ValueContent()
+		.ValueContent()
 		.MaxDesiredWidth(980.f)
 		[
 			SNew(SPinTypeSelector, FGetPinTypeTree::CreateUObject(K2Schema, &UEdGraphSchema_K2::GetVariableTypeTree))
-			.TargetPinType(this, &FGenericStructCustomization::OnGetVarType)
-		.OnPinTypeChanged(this, &FGenericStructCustomization::OnVarTypeChanged)
-		.IsEnabled(this, &FGenericStructCustomization::GetVariableTypeChangeEnabled)
-		.Schema(K2Schema)
-		.TypeTreeFilter(ETypeTreeFilter::None)
-		.bAllowArrays(true)
-		.Font(DetailFontInfo)
+				.TargetPinType(this, &FGenericStructCustomization::OnGetVarType)
+				.OnPinTypeChanged(this, &FGenericStructCustomization::OnVarTypeChanged)
+				.IsEnabled(this, &FGenericStructCustomization::GetVariableTypeChangeEnabled)
+				.Schema(K2Schema)
+				.TypeTreeFilter(ETypeTreeFilter::None)
+				.bAllowArrays(true)
+				.Font(DetailFontInfo)
 		]
-	;
+		;
 }
 
 void FGenericStructCustomization::CustomizeStructChildren(TSharedRef<IPropertyHandle> StructPropertyHandle, IDetailChildrenBuilder& ChildBuilder, IStructCustomizationUtils& StructCustomizationUtils)
@@ -68,12 +126,12 @@ FEdGraphPinType FGenericStructCustomization::OnGetVarType() const
 {
 	if (auto PropertyHandleShared = PropertyHandle.Pin())
 	{
-		void* PropertyAddress = nullptr;
-		PropertyHandleShared->GetValueData(PropertyAddress);
-		if (PropertyAddress)
+		void* PropertyPtr = nullptr;
+		PropertyHandleShared->GetValueData(PropertyPtr);
+		if (PropertyPtr)
 		{
-			FGeneric& Generic = *(FGeneric*)PropertyAddress;
-			return Generic.EditPinType;
+			FGeneric& Generic = *reinterpret_cast<FGeneric*>(PropertyPtr);
+			return Generic.GetEditPinType();
 		}
 	}
 	return FEdGraphPinType();
@@ -83,22 +141,25 @@ void FGenericStructCustomization::OnVarTypeChanged(const FEdGraphPinType& NewPin
 {
 	if (auto PropertyHandleShared = PropertyHandle.Pin())
 	{
-		if (FGenericStructCustomization::IsPinTypeValid(NewPinType))
+		ModifyEditingObjects(PropertyHandleShared.Get());
+
+		TArray<void*> RawData;
+		PropertyHandleShared->AccessRawData(RawData);
+		for (int32 i = 0; i < RawData.Num(); ++i)
 		{
-			TArray<void*> RawData;
-			PropertyHandleShared->AccessRawData(RawData);
-			for (int32 i = 0; i < RawData.Num(); ++i)
+			FGeneric& Generic = *reinterpret_cast<FGeneric*>(RawData[i]);
+			if (Generic.GetEditPinType() != NewPinType)
 			{
-				FGeneric& Generic = *(FGeneric*)RawData[i];
-				Generic.EditPinType = NewPinType;
-				Generic.ClearReferencedObjects();
+				Generic.Clear();
+				Generic.SetEditPinType(NewPinType);
 			}
 		}
+
+		PropertyHandleShared->NotifyPostChange(EPropertyChangeType::ValueSet);
+		PropertyHandleShared->NotifyFinishedChangingProperties();
 	}
-	if (LastChildBuilder)
-	{
-		LastChildBuilder->GetParentCategory().GetParentLayout().ForceRefreshDetails();
-	}
+
+	ForceRebuildDetails();
 }
 
 uint32 GetTypeHash(const FEdGraphPinType& Struct)
@@ -108,9 +169,9 @@ uint32 GetTypeHash(const FEdGraphPinType& Struct)
 			HashCombine(
 				HashCombine(GetTypeHash(Struct.PinCategory), GetTypeHash(Struct.PinSubCategory)),
 				HashCombine(GetTypeHash(Struct.PinSubCategoryObject.Get()), GetTypeHash(Struct.PinSubCategoryMemberReference.MemberGuid))
-			), 
+			),
 			HashCombine(
-				GetTypeHash((int32)Struct.ContainerType), 
+				GetTypeHash((int32)Struct.ContainerType),
 				GetTypeHash(((int32)Struct.bIsReference) | ((int32)Struct.bIsConst << 1) | ((int32)Struct.bIsWeakPointer << 2) | ((int32)Struct.bIsUObjectWrapper << 3))
 			)
 		),
@@ -120,6 +181,14 @@ uint32 GetTypeHash(const FEdGraphPinType& Struct)
 				GetTypeHash(((int32)Struct.PinValueType.bTerminalIsConst) | ((int32)Struct.PinValueType.bTerminalIsWeakPointer << 1) | ((int32)Struct.PinValueType.bTerminalIsUObjectWrapper << 2)))
 		)
 	);
+}
+
+void FGenericStructCustomization::ForceRebuildDetails()
+{
+	if (LastChildBuilder && LastChildBuilder->GetParentCategory().IsParentLayoutValid())
+	{
+		LastChildBuilder->GetParentCategory().GetParentLayout().ForceRefreshDetails();
+	}
 }
 
 void FGenericStructCustomization::CreateChildrenInternal(IDetailChildrenBuilder& ChildBuilder)
@@ -132,9 +201,6 @@ void FGenericStructCustomization::CreateChildrenInternal(IDetailChildrenBuilder&
 		return;
 	}
 
-	TArray<UPackage*> EditingPackages;
-	StructPropertyHandle->GetOuterPackages(EditingPackages);
-
 	TArray<void*> RawData;
 	StructPropertyHandle->AccessRawData(RawData);
 	if (RawData.Num() == 0)
@@ -142,99 +208,102 @@ void FGenericStructCustomization::CreateChildrenInternal(IDetailChildrenBuilder&
 		return;
 	}
 
-	FGeneric& Generic = *(FGeneric*)RawData[0];
-	if (!FGenericStructCustomization::IsPinTypeValid(Generic.EditPinType))
+	FGeneric& LeadGenericVar = *reinterpret_cast<FGeneric*>(RawData[0]);
+	FEdGraphPinType TargetPinType = LeadGenericVar.GetEditPinType();
+	if (!IsPinTypeValid(TargetPinType))
 	{
 		return;
 	}
 
-	for (int32 i = 1; i < RawData.Num(); ++i)
+	if (RawData.ContainsByPredicate([TargetPinType](const void* GenericPtr)
+		{ return reinterpret_cast<const FGeneric*>(GenericPtr)->GetEditPinType() != TargetPinType; }))
 	{
-		if (((FGeneric*)RawData[i])->EditPinType != Generic.EditPinType)
-		{
-			return;
-		}
+		return;
 	}
 
 	FProperty* EditProperty = nullptr;
 	const FName EditPropertyName = FName("Value");
-	UUserDefinedStruct*& EditorStruct = Generic.EditorStruct;
-	TArray<FStructVariableDescription> EditorStructMem;
-	
-	if (EditorStruct)
-	{
-		EditorStructMem = FStructureEditorUtils::GetVarDesc(EditorStruct);
-		EditProperty = EditorStruct->PropertyLink;
-	}
+	UUserDefinedStruct*& EditorStruct = LeadGenericVar.EditorStruct;
+	TArray<FStructVariableDescription> StructLayout;
 
-	// Check if we need to regenerate the struct property
-	if (EditProperty == nullptr || (EditorStruct && EditorStructMem.Num() == 1 || (
-		EditorStructMem[0].Category != Generic.EditPinType.PinCategory ||
-		EditorStructMem[0].SubCategory != Generic.EditPinType.PinSubCategory ||
-		EditorStructMem[0].SubCategoryObject.Get() != Generic.EditPinType.PinSubCategoryObject ||
-		EditorStructMem[0].ContainerType != Generic.EditPinType.ContainerType ||
-		EditorStructMem[0].PinValueType != Generic.EditPinType.PinValueType
-		)))
-	{
-		EditorStruct = nullptr;
-
-		static TMap<FEdGraphPinType, TWeakObjectPtr<UUserDefinedStruct>> StructCache;
-		if (auto* CachedStruct = StructCache.Find(Generic.EditPinType))
+	auto TryRetrieveEditProperty = [&]()
 		{
-			EditorStruct = CachedStruct->Get();
 			if (EditorStruct)
 			{
-				EditorStructMem = FStructureEditorUtils::GetVarDesc(EditorStruct);
+				StructLayout = FStructureEditorUtils::GetVarDesc(EditorStruct);
 				EditProperty = EditorStruct->PropertyLink;
 			}
+		};
+
+	TryRetrieveEditProperty();
+
+	// Check if we need to regenerate the struct property
+	if (EditProperty == nullptr
+		|| StructLayout.Num() != 1
+		|| !IsEquivalent(StructLayout[0], TargetPinType))
+	{
+		EditorStruct = nullptr;
+		EditProperty = nullptr;
+		StructLayout.Reset();
+
+		static TMap<FEdGraphPinType, TWeakObjectPtr<UUserDefinedStruct>> StructCache;
+		if (auto* CachedStruct = StructCache.Find(TargetPinType))
+		{
+			EditorStruct = CachedStruct->Get();
+			TryRetrieveEditProperty();
 		}
-		
-		if (EditorStruct == nullptr)
+
+		if (EditProperty == nullptr)
 		{
 			EditorStruct = FStructureEditorUtils::CreateUserDefinedStruct(
 				GetTransientPackage(),
-				(FName)*FString::Printf(TEXT("Generic_GEN_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Base36Encoded)),
+				(FName)*FString::Printf(TEXT("GENERIC_DUMMY_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Base36Encoded)),
 				EObjectFlags::RF_Transient
 			);
 			EditorStruct->SetMetaData(FBlueprintMetadata::MD_NotAllowableBlueprintVariableType, TEXT("true"));
 			// We don't need to call FStructureEditorUtils::AddVariable since there's already a default var in the field.
-			EditorStructMem = FStructureEditorUtils::GetVarDesc(EditorStruct);
-			FStructureEditorUtils::ChangeVariableType(EditorStruct, EditorStructMem[0].VarGuid, Generic.EditPinType);
-			FStructureEditorUtils::RenameVariable(EditorStruct, EditorStructMem[0].VarGuid, EditPropertyName.ToString());
+			StructLayout = FStructureEditorUtils::GetVarDesc(EditorStruct);
+			FStructureEditorUtils::ChangeVariableType(EditorStruct, StructLayout[0].VarGuid, TargetPinType);
+			FStructureEditorUtils::RenameVariable(EditorStruct, StructLayout[0].VarGuid, EditPropertyName.ToString());
 			EditProperty = EditorStruct->PropertyLink;
 
-			StructCache.Add(Generic.EditPinType, EditorStruct);
+			StructCache.Add(TargetPinType, EditorStruct);
 		}
 	}
 
 	// Generate an instance struct for reflection
-	if (Generic.EditorStruct && EditorStructMem.Num() == 1)
+	if (EditorStruct && ensure(EditProperty))
 	{
+		ensureAlways(StructLayout.Num() == 1);
+
 		TSharedRef<FStructOnScope> StructOnScope = MakeShareable<FStructOnScope>(
-			new FStructOnScope(Generic.EditorStruct)
-			);
+			new FStructOnScope(EditorStruct)
+		);
 		StructOnScope->SetPackage(GetTransientPackage());
-		if (!Generic.IsEmpty())
-		{
-			Generic.Get(StructOnScope->GetStructMemory(), EditProperty);
-		}
-		else
-		{
-			Generic.Set(StructOnScope->GetStructMemory(), EditProperty);
-			for (auto* Package : EditingPackages) Package->MarkPackageDirty();
-		}
+		LeadGenericVar.Get(StructOnScope->GetStructMemory(), EditProperty);
+
 		FAddPropertyParams Params;
 		Params.ForceShowProperty();
 		auto* ValueRow = ChildBuilder.AddExternalStructureProperty(StructOnScope, *(EditProperty->GetName()), Params);
-		auto OnValueChangedLambda = FSimpleDelegate::CreateLambda([RawData, StructOnScope, EditProperty]()
+		auto OnValuePreChangeLambda = FSimpleDelegate::CreateLambda([=]()
+			{
+				ModifyEditingObjects(StructPropertyHandle.Get());
+			}
+		);
+		auto OnValueChangedLambda = FSimpleDelegate::CreateLambda([=, &LeadGenericVar]()
 			{
 				check(EditProperty && StructOnScope->GetStructMemory());
-				for (void* RawDataPtr : RawData)
+				LeadGenericVar.Set(StructOnScope->GetStructMemory(), EditProperty);
+				for (void* Data : RawData)
 				{
-					FGeneric& Generic = *(FGeneric*)RawDataPtr;
-					Generic.Set(StructOnScope->GetStructMemory(), EditProperty);
+					if (Data == &LeadGenericVar) continue;
+					FGeneric& GenericVar = *reinterpret_cast<FGeneric*>(Data);
+					GenericVar = LeadGenericVar;
 				}
+				StructPropertyHandle->NotifyPostChange(EPropertyChangeType::ValueSet);
+				StructPropertyHandle->NotifyFinishedChangingProperties();
 			});
+		ValueRow->GetPropertyHandle()->SetOnPropertyValuePreChange(OnValuePreChangeLambda);
 		ValueRow->GetPropertyHandle()->SetOnPropertyValueChanged(OnValueChangedLambda);
 		ValueRow->GetPropertyHandle()->SetOnChildPropertyValueChanged(OnValueChangedLambda);
 		ValueRow->ShouldAutoExpand(true);
@@ -255,8 +324,3 @@ void FGenericStructCustomization::CreateChildrenInternal(IDetailChildrenBuilder&
 }
 
 #undef LOCTEXT_NAMESPACE
-
-bool FGenericStructCustomization::IsPinTypeValid(const FEdGraphPinType& Type)
-{
-	return FEdGraphPinType() != Type;
-}
