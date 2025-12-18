@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Core/Traits/MaidCoreTraits.h"
 #include "Misc/EngineVersionComparison.h"
 
 #if UE_VERSION_NEWER_THAN(5, 5, 0)
@@ -121,77 +122,6 @@ public:
 
 #pragma push_macro("GET_GENERIC_PROP_PRIVATE")
 #define GET_GENERIC_PROP_PRIVATE(CppType) FGenericPropJunkPrivate::Get(CppType())
-
-namespace GenericTraits
-{
-	template<typename T> constexpr bool TIsSubclassOf = false;
-	template<typename T> constexpr bool TIsSubclassOf<TSubclassOf<T>> = true;
-
-	template<typename T, typename = void> 
-	struct HasStaticStruct : std::false_type {};
-	
-	template<typename T> 
-	struct HasStaticStruct<T, std::void_t<decltype(&T::StaticStruct)>> : std::true_type {};
-	
-	template<typename T> 
-	constexpr bool TIsUStruct = HasStaticStruct<T>::value;
-
-	template<typename T> 
-	constexpr bool TIsEnumAsByte = false;
-	
-	template<typename T> 
-	constexpr bool TIsEnumAsByte<TEnumAsByte<T>> = true;
-	
-	template<typename T, typename = void> struct TUnderlyingEnum { using Type = void; };
-
-	template<typename T, int> struct TUnderlyingEnumImpl { using Type = void; };
-	template<typename T> struct TUnderlyingEnumImpl<T, 0> { using Type = typename T::EnumType; };
-	template<typename T> struct TUnderlyingEnumImpl<T, 1> { using Type = T; };
-
-	template<typename T> struct TUnderlyingEnum<T, std::void_t<decltype(sizeof(T))>>
-	{
-		using Type = typename TUnderlyingEnumImpl<T,
-			TIsEnumAsByte<T> ? 0 : (std::is_enum_v<T> ? 1 : 2)
-		>::Type;
-	};
-
-	template<typename T, typename = void> struct TUnderlyingType { using Type = void; };
-
-	template<typename T, int> struct TUnderlyingTypeImpl { using Type = void; };
-	template<typename T> struct TUnderlyingTypeImpl<T, 0> { using Type = __underlying_type(typename TUnderlyingEnum<T>::Type); };
-	template<typename T> struct TUnderlyingTypeImpl<T, 1> { using Type = __underlying_type(T); };
-
-	template<typename T> struct TUnderlyingType<T, std::void_t<decltype(sizeof(T))>>
-	{
-		using Type = typename TUnderlyingTypeImpl<T,
-			TIsEnumAsByte<T> ? 0 : (std::is_enum_v<T> ? 1 : 2)
-		>::Type;
-	};
-
-	template<typename T> 
-	auto TestStaticEnum(int) -> decltype(StaticEnum<T>(), std::true_type{});
-	
-	template<typename T> 
-	auto TestStaticEnum(...) -> std::false_type;
-	
-	template<typename T, typename = void> 
-	struct HasStaticEnum : std::false_type {};
-	
-	template<typename T> 
-	struct HasStaticEnum<T, std::enable_if_t<std::is_same_v<decltype(TestStaticEnum<T>(0)), std::true_type>> > 
-		: decltype(TestStaticEnum<T>(0)) {};
-	
-	template<typename T, typename = void> 
-	struct TIsUEnum : std::false_type {};
-	
-	template<typename T> 
-	struct TIsUEnum<T, std::enable_if_t<std::is_enum_v<T> && HasStaticEnum<T>::value>> 
-		: std::true_type {};
-	
-	template<typename T> 
-	struct TIsUEnum<T, std::enable_if_t<TIsEnumAsByte<T> && std::is_enum_v<typename TUnderlyingEnum<T>::Type> && HasStaticEnum<typename TUnderlyingEnum<T>::Type>::value>> 
-		: std::true_type {};
-}
 
 /**
  * Universal container type supporting both Blueprint and C++ systems
@@ -470,14 +400,14 @@ public:
 	}
 
 	/** Construct from any UScriptStruct-based type */
-	template<class CppType, typename std::enable_if_t<GenericTraits::TIsUStruct<CppType>>* = nullptr>
+	template<class CppType, typename std::enable_if_t<TIsUStruct<CppType>>* = nullptr>
 	explicit FGeneric(const CppType& Other)
 	{
 		(*this) = Other;
 	}
 
 	/** Assign from any UScriptStruct-based type */
-	template<class CppType, typename std::enable_if_t<GenericTraits::TIsUStruct<CppType>>* = nullptr>
+	template<class CppType, typename std::enable_if_t<TIsUStruct<CppType>>* = nullptr>
 	FORCEINLINE FGeneric& operator=(const CppType& Other)
 	{
 		Clear();
@@ -494,14 +424,14 @@ public:
 	}
 
 	/** Construct from UEnum type */
-	template<class CppType, typename std::enable_if_t<GenericTraits::TIsUEnum<CppType>::value>* = nullptr>
+	template<class CppType, typename std::enable_if_t<TIsUEnum<CppType>>* = nullptr>
 	explicit FGeneric(const CppType& Other)
 	{
 		(*this) = Other;
 	}
 
 	/** Assign from UEnum type */
-	template<class CppType, typename std::enable_if_t<GenericTraits::TIsUEnum<CppType>::value>* = nullptr>
+	template<class CppType, typename std::enable_if_t<TIsUEnum<CppType>>* = nullptr>
 	FORCEINLINE FGeneric& operator=(const CppType& Other)
 	{
 		(*this) = (__underlying_type(CppType))Other;
@@ -509,14 +439,14 @@ public:
 	}
 
 	/** Construct from TEnumAsByte of UEnum type */
-	template<class CppType, typename std::enable_if_t<GenericTraits::TIsUEnum<CppType>::value>* = nullptr>
+	template<class CppType, typename std::enable_if_t<TIsUEnum<CppType>>* = nullptr>
 	explicit FGeneric(const TEnumAsByte<CppType>& Other)
 	{
 		(*this) = Other;
 	}
 
 	/** Assign from TEnumAsByte of UEnum type */
-	template<class CppType, typename std::enable_if_t<GenericTraits::TIsUEnum<CppType>::value>* = nullptr>
+	template<class CppType, typename std::enable_if_t<TIsUEnum<CppType>>* = nullptr>
 	FORCEINLINE FGeneric& operator=(const TEnumAsByte<CppType>& Other)
 	{
 		(*this) = (__underlying_type(CppType))Other;
@@ -593,12 +523,9 @@ public:
 					return FCString::Atod(*Data);
 			return static_cast<CppTypeNoCV>(0);
 		}
-		else if constexpr (TIsIntegral<CppTypeNoCV>::Value || GenericTraits::TIsUEnum<CppTypeNoCV>::value)
+		else if constexpr (TIsIntegral<CppTypeNoCV>::Value || TIsUEnum<CppTypeNoCV>)
 		{
-			using TDestType = typename std::conditional_t<
-				GenericTraits::TIsUEnum<CppTypeNoCV>::value,
-				typename GenericTraits::TUnderlyingType<CppTypeNoCV>::Type,
-				CppTypeNoCV>;
+			using TDestType = typename std::conditional_t<TIsUEnum<CppTypeNoCV>, TUnderlyingType<CppTypeNoCV>, CppTypeNoCV>;
 			if (GetPlainSize() < sizeof(CppTypeNoCV))
 				if (Data.IsEmpty())
 					return static_cast<CppTypeNoCV>(TDestType(0));
@@ -630,7 +557,7 @@ public:
 				"Only UObject pointer types with blueprint reflection are supported by FGeneric");
 			return nullptr;
 		}
-		else if constexpr (GenericTraits::TIsSubclassOf<CppTypeNoCV>)
+		else if constexpr (TIsSubclassOf<CppTypeNoCV>)
 		{
 			return Cast<UClass>(As<TSoftObjectPtr<>>().LoadSynchronous());
 		}
@@ -638,7 +565,7 @@ public:
 		{
 			return As<TSoftObjectPtr<>>();
 		}
-		else if constexpr (GenericTraits::TIsUStruct<CppTypeNoCV>)
+		else if constexpr (TIsUStruct<CppTypeNoCV>)
 		{
 			CppTypeNoCV Ans;
 			UScriptStruct* Struct = CppTypeNoCV::StaticStruct();
