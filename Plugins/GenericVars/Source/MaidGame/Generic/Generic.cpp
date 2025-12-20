@@ -62,11 +62,18 @@ void FGeneric::Get(void* DestPropertyAddress, const FProperty* DestProperty) con
 		if (DataCache.ConditionalGet(DestPropertyAddress, DestProperty)) return;
 #endif
 		DestProperty->ClearValue(DestPropertyAddress);
+		if (!Data.IsEmpty())
+		{
 #if UE_VERSION_NEWER_THAN(5, 1, 0)
-		DestProperty->ImportText_Direct(*Data, DestPropertyAddress, nullptr, PPF_None, nullptr);
+			DestProperty->ImportText_Direct(*Data, DestPropertyAddress, nullptr, PPF_None, nullptr);
 #else
-		DestProperty->ImportText(*Data, DestPropertyAddress, PPF_None, nullptr, nullptr);
+			DestProperty->ImportText(*Data, DestPropertyAddress, PPF_None, nullptr, nullptr);
 #endif
+		}
+		else
+		{
+			DestProperty->InitializeValue(DestPropertyAddress);
+		}
 	}
 }
 
@@ -195,13 +202,20 @@ static struct
 	{
 		const auto PropCastFlags = Prop->GetCastFlags();
 		if (0) {}
-		else if (PropCastFlags & CASTCLASS_FSoftClassProperty) return TSoftObjectPtr<UObject>(FSoftClassProperty::GetPropertyValue(Data).ToSoftObjectPath());
-		else if (PropCastFlags & CASTCLASS_FSoftObjectProperty) return TSoftObjectPtr<UObject>(FSoftObjectProperty::GetPropertyValue(Data).ToSoftObjectPath());
-		else if (PropCastFlags & CASTCLASS_FLazyObjectProperty) return ((FWeakObjectPtr*)&FLazyObjectProperty::GetPropertyValue(Data))->Get();
-		else if (PropCastFlags & CASTCLASS_FWeakObjectProperty) return FWeakObjectProperty::GetPropertyValue(Data).Get();
-		else if (PropCastFlags & CASTCLASS_FClassProperty) return FClassProperty::GetPropertyValue(Data);
-		else if (PropCastFlags & CASTCLASS_FObjectProperty) return FObjectProperty::GetPropertyValue(Data);
-		else if (PropCastFlags & CASTCLASS_FObjectPropertyBase) ensure(false);
+		else if (PropCastFlags & CASTCLASS_FSoftClassProperty) 
+			return TSoftObjectPtr<UObject>(FSoftClassProperty::GetPropertyValue(Data).ToSoftObjectPath());
+		else if (PropCastFlags & CASTCLASS_FSoftObjectProperty) 
+			return TSoftObjectPtr<UObject>(FSoftObjectProperty::GetPropertyValue(Data).ToSoftObjectPath());
+		else if (PropCastFlags & CASTCLASS_FLazyObjectProperty)
+			return ((FWeakObjectPtr*)&FLazyObjectProperty::GetPropertyValue(Data))->Get();
+		else if (PropCastFlags & CASTCLASS_FWeakObjectProperty) 
+			return FWeakObjectProperty::GetPropertyValue(Data).Get();
+		else if (PropCastFlags & CASTCLASS_FClassProperty) 
+			return FClassProperty::GetPropertyValue(Data);
+		else if (PropCastFlags & CASTCLASS_FObjectProperty) 
+			return FObjectProperty::GetPropertyValue(Data);
+		else if (PropCastFlags & CASTCLASS_FObjectPropertyBase) 
+			ensure(false);
 		return nullptr;
 	}
 	void operator()(TArray<TSoftObjectPtr<UObject>>& RefList, const UScriptStruct* Struct, const void* Data)
