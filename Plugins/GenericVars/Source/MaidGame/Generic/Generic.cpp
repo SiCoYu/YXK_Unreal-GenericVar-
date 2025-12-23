@@ -51,7 +51,30 @@ void FGeneric::Get(void* DestPropertyAddress, const FProperty* DestProperty) con
 	if (!(DestPropertyAddress && DestProperty)) return;
 	if (IsPlain(DestProperty))
 	{
-		if (GetPlainSize() >= DestProperty->GetSize())
+		static constexpr const auto CASTCLASS_FInt32Property = CASTCLASS_FIntProperty;
+		static constexpr const auto CASTCLASS_FUInt8Property = CASTCLASS_FByteProperty;
+		using FInt32Property = FIntProperty;
+		using FUInt8Property = FByteProperty;
+
+		const auto PropCastFlags = DestProperty->GetCastFlags();
+#pragma push_macro("GENERIC_PROPERTY")
+#pragma push_macro("GENERIC_PROPERTY_BOOL")
+#pragma push_macro("GENERIC_PROPERTY_FLOAT")
+#pragma push_macro("GENERIC_PROPERTY_INT")
+#define GENERIC_PROPERTY(CppType, Name)
+#define GENERIC_PROPERTY_INT(CppType, Name) \
+	else if (PropCastFlags & CASTCLASS_F##Name##Property) \
+		static_cast<const F##Name##Property*>(DestProperty)->SetPropertyValue(DestPropertyAddress, As<CppType>());
+	// END DEFINE GENERIC_PROPERTY
+#define GENERIC_PROPERTY_BOOL(CppType, Name) GENERIC_PROPERTY_INT(CppType, Name)
+#define GENERIC_PROPERTY_FLOAT(CppType, Name) GENERIC_PROPERTY_INT(CppType, Name)
+		if (false) {}
+#include "GenericProperties.inl"
+#pragma pop_macro("GENERIC_PROPERTY")
+#pragma pop_macro("GENERIC_PROPERTY_BOOL")
+#pragma pop_macro("GENERIC_PROPERTY_FLOAT")
+#pragma pop_macro("GENERIC_PROPERTY_INT")
+		else if (GetPlainSize() >= DestProperty->GetSize())
 			DestProperty->CopyCompleteValue(DestPropertyAddress, PlainData.GetData());
 		else
 			DestProperty->ClearValue(DestPropertyAddress);
@@ -137,6 +160,8 @@ const bool FGeneric::IsPlain(const FProperty* Prop)
 		StaticGetBaseStructureInternal(TEXT("CoreUObject"), TEXT("Vector3f")),
 		StaticGetBaseStructureInternal(TEXT("CoreUObject"), TEXT("Vector4f")),
 		StaticGetBaseStructureInternal(TEXT("CoreUObject"), TEXT("Matrix44f")),
+		StaticGetBaseStructureInternal(TEXT("CoreUObject"), TEXT("Box3f")),
+		StaticGetBaseStructureInternal(TEXT("CoreUObject"), TEXT("Box2f")),
 #endif
 
 		StaticGetBaseStructureInternal(TEXT("CoreUObject"), TEXT("Vector")),
