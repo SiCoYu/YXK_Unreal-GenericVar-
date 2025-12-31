@@ -1,3 +1,5 @@
+https://www.bilibili.com/video/BV1kvq6B3E4Z/?spm_id_from=333.1007.tianma.1-1-1.click&vd_source=e8e45cd93055fb449fd25d5704893ad5
+# UE5 泛型变量的妙用 免费开源插件分享 支持UE4
 # Unreal Generic Variables
 
 A standalone, type-safe generic variable system for Unreal Engine, extracted from MaidGameFramework. This plugin provides a universal container type that supports seamless data exchange between C++ and Blueprint systems with full type safety.
